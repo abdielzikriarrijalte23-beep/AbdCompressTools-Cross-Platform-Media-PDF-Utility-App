@@ -1,0 +1,249 @@
+import 'dart:io';
+import 'dart:typed_data';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
+import 'package:flutter_image_compress/flutter_image_compress.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:abdsukapdf/widgets/in_app_file_picker.dart';
+import 'package:abdsukapdf/widgets/theme_switcher.dart';
+import 'package:abdsukapdf/utils/platform_helper.dart';
+
+class PdfFromImagesScreen extends StatefulWidget {
+  const PdfFromImagesScreen({super.key});
+  @override
+  State<PdfFromImagesScreen> createState() => _PdfFromImagesScreenState();
+}
+
+class _PdfFromImagesScreenState extends State<PdfFromImagesScreen> {
+  final List<Uint8List> _imageBytesList = [];
+  final List<String> _imageNames = [];
+  bool _isProcessing = false;
+  Future<void> pickImages() async {
+    try {
+      if (kIsWeb) {
+        final picker = ImagePicker();
+        final picked = await picker.pickMultiImage();
+        if (picked.isNotEmpty) {
+          for (final xfile in picked) {
+            final bytes = await xfile.readAsBytes();
+            setState(() {
+              _imageBytesList.add(bytes);
+              _imageNames.add(xfile.name);
+            });
+          }
+        }
+        return;
+      }
+      if (PlatformHelper.isMobile) {
+        final picker = ImagePicker();
+        final picked = await picker.pickMultiImage();
+        if (picked.isNotEmpty) {
+          for (final xfile in picked) {
+            final bytes = await xfile.readAsBytes();
+            setState(() {
+              _imageBytesList.add(bytes);
+              _imageNames.add(xfile.name);
+            });
+          }
+          return;
+        }
+      }
+      final selected = await showInAppFilePickerMultiple(
+        context,
+        initialDirectory: Directory.current.path,
+        allowedExtensions: ['jpg', 'jpeg', 'png', 'webp'],
+      );
+      if (!mounted) return;
+      if (selected == null || selected.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('No images selected')));
+        }
+        return;
+      }
+      for (final p in selected) {
+        final bytes = await File(p).readAsBytes();
+        setState(() {
+          _imageBytesList.add(bytes);
+          _imageNames.add(p.split('/').last);
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to pick images: $e')));
+      }
+    }
+  }
+
+  Future<void> createPdf() async {
+    setState(() => _isProcessing = true);
+    try {
+      final pdf = pw.Document();
+      for (int i = 0; i < _imageBytesList.length; i++) {
+        Uint8List bytes = _imageBytesList[i];
+        if (!kIsWeb) {
+          try {
+            final compressed = await FlutterImageCompress.compressWithList(
+              bytes,
+              quality: 65,
+            );
+            bytes = compressed;
+          } catch (_) {}
+        }
+        pdf.addPage(
+          pw.Page(
+            build: (_) => pw.Center(child: pw.Image(pw.MemoryImage(bytes))),
+          ),
+        );
+      }
+      final bytes = await pdf.save();
+      if (!mounted) return;
+      final action = await showDialog<String>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('PDF Ready'),
+          content: const Text(
+            'Would you like to download the PDF to your device or share it with other apps?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop('download'),
+              child: const Text('Download'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop('share'),
+              child: const Text('Share'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop('cancel'),
+              child: const Text('Cancel'),
+            ),
+          ],
+        ),
+      );
+      if (action == 'download') {
+        if (kIsWeb) {
+          await Printing.sharePdf(bytes: bytes, filename: 'abdsukapdf_images.pdf');
+        } else {
+          final dir = await getApplicationDocumentsDirectory();
+          final file = File('${dir.path}/abdsukapdf_images.pdf');
+          await file.writeAsBytes(bytes);
+          if (mounted) {
+            ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(SnackBar(content: Text('Saved to ${file.path}')));
+          }
+        }
+      } else if (action == 'share') {
+        await Printing.sharePdf(bytes: bytes, filename: 'abdsukapdf_images.pdf');
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Failed to create PDF: $e')));
+    } finally {
+      setState(() => _isProcessing = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Scaffold(
+      backgroundColor: isDark
+          ? const Color(0xFF101817)
+          : const Color(0xFFF6F8F7),
+      appBar: AppBar(
+        title: const Text('PDF from Images'),
+        backgroundColor: isDark ? const Color(0xFF1C1C1C) : Colors.white,
+        foregroundColor: isDark ? Colors.white : Colors.black87,
+        actions: [
+          ThemeSwitcher(compact: true),
+          const SizedBox(width: 4),
+          IconButton(
+            icon: const Icon(Icons.add_photo_alternate),
+            onPressed: pickImages,
+          ),
+        ],
+      ),
+      body: Column(
+        children: [
+          Expanded(
+            child: _imageBytesList.isEmpty
+                ? const Center(child: Text('No images selected'))
+                : ReorderableListView(
+                    onReorder: (oldIndex, newIndex) {
+                      setState(() {
+                        if (newIndex > oldIndex) newIndex -= 1;
+                        final itemBytes = _imageBytesList.removeAt(oldIndex);
+                        _imageBytesList.insert(newIndex, itemBytes);
+                        final itemName = _imageNames.removeAt(oldIndex);
+                        _imageNames.insert(newIndex, itemName);
+                      });
+                    },
+                    padding: const EdgeInsets.only(top: 8),
+                    children: List.generate(_imageBytesList.length, (i) {
+                      return ListTile(
+                        key: ValueKey('image-$i-${_imageNames[i]}'),
+                        leading: ClipRRect(
+                          borderRadius: BorderRadius.circular(6),
+                          child: Image.memory(
+                            _imageBytesList[i],
+                            width: 56,
+                            height: 56,
+                            fit: BoxFit.cover,
+                          ),
+                        ),
+                        title: Text(_imageNames[i]),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.delete_outline),
+                              onPressed: () {
+                                setState(() {
+                                  _imageBytesList.removeAt(i);
+                                  _imageNames.removeAt(i);
+                                });
+                              },
+                            ),
+                            const Padding(
+                              padding: EdgeInsets.only(left: 8.0),
+                              child: Icon(Icons.drag_handle),
+                            ),
+                          ],
+                        ),
+                      );
+                    }),
+                  ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: ElevatedButton(
+              onPressed: (_imageBytesList.isEmpty || _isProcessing)
+                  ? null
+                  : createPdf,
+              child: _isProcessing
+                  ? const SizedBox(
+                      height: 18,
+                      width: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Text('Create & Share PDF'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}

@@ -1,0 +1,19 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=ABdSukaPDF
+Comment=PDF viewer, creator, compressor and sharing app
+Exec=abdsukapdf %F
+Icon=abdsukapdf
+Terminal=false
+Categories=Utility;Office;Viewer;
+MimeType=application/pdf;
+Keywords=pdf;viewer;compress;edit;
+StartupNotify=true
+StartupWMClass=abdsukapdf
+
+# File associations
+MimeType=application/pdf;
+
+# URL scheme support
+X-KDE-Protocols=openpdf

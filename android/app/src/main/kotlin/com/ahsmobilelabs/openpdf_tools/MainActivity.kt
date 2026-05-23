@@ -1,0 +1,97 @@
+package com.abdielzikri.abdsukapdf
+
+import android.content.Intent
+import android.net.Uri
+import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.MethodChannel
+
+class MainActivity : FlutterActivity() {
+    private val PDF_OPENER_CHANNEL = "com.abdsukapdf.tools/pdfOpener"
+    private val PDF_MANIPULATION_CHANNEL = "com.abdsukapdf.tools/pdfManipulation"
+    private val VIDEO_COMPRESSION_CHANNEL = "com.abdsukapdf.tools/videoCompression"
+    private lateinit var pdfManipulationHandler: PdfManipulationHandler
+    private lateinit var videoCompressionHandler: VideoCompressionHandler
+
+    override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
+        super.configureFlutterEngine(flutterEngine)
+
+        pdfManipulationHandler = PdfManipulationHandler(this)
+        videoCompressionHandler = VideoCompressionHandler(this)
+
+        // PDF Opener channel
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, PDF_OPENER_CHANNEL)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "registerPdfOpener" -> result.success(true)
+                    "getReceivedPdfPath" -> result.success(extractPdfPathFromIntent())
+                    else -> result.notImplemented()
+                }
+            }
+
+        // PDF Manipulation channel — delegate everything to the handler
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, PDF_MANIPULATION_CHANNEL)
+            .setMethodCallHandler { call, result ->
+                pdfManipulationHandler.handleMethodCall(call, result)
+            }
+
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, VIDEO_COMPRESSION_CHANNEL)
+            .setMethodCallHandler { call, result ->
+                videoCompressionHandler.handleMethodCall(call, result)
+            }
+
+        handleIntent(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIntent(intent)
+    }
+
+    private fun handleIntent(intent: Intent) {
+        if (intent.action == Intent.ACTION_VIEW) {
+            val uri = intent.data ?: return
+            if (isPdfFile(uri)) {
+                val path = getFilePathFromUri(uri) ?: return
+                flutterEngine?.let {
+                    MethodChannel(it.dartExecutor.binaryMessenger, PDF_OPENER_CHANNEL)
+                        .invokeMethod("openPdf", path)
+                }
+            }
+        }
+    }
+
+    private fun extractPdfPathFromIntent(): String? {
+        val uri = intent?.data ?: return null
+        return if (isPdfFile(uri)) getFilePathFromUri(uri) else null
+    }
+
+    private fun getFilePathFromUri(uri: Uri): String? {
+        return when (uri.scheme) {
+            "file" -> uri.path
+            "content" -> getPathFromContentUri(uri)
+            "openpdf" -> uri.pathSegments.drop(1).joinToString("/")
+            else -> uri.toString()
+        }
+    }
+
+    private fun getPathFromContentUri(uri: Uri): String? {
+        return try {
+            val projection = arrayOf(android.provider.MediaStore.MediaColumns.DATA)
+            contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    cursor.getString(cursor.getColumnIndexOrThrow(android.provider.MediaStore.MediaColumns.DATA))
+                } else uri.path
+            }
+        } catch (e: Exception) {
+            uri.path
+        }
+    }
+
+    private fun isPdfFile(uri: Uri): Boolean {
+        val mimeType = contentResolver.getType(uri)
+        val path = uri.path ?: uri.toString()
+        return mimeType == "application/pdf" || path.endsWith(".pdf", ignoreCase = true)
+    }
+}
