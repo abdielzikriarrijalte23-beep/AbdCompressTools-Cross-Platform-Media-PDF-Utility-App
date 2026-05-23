@@ -75,18 +75,6 @@ The application supports PDF management, media compression, file conversion, ann
 - Material Design UI
 
 ---
-
-## Project Structure
-
-```bash
-lib/
- ├── screens/
- ├── widgets/
- ├── services/
- ├── models/
- └── main.dart
-```
-
 ---
 
 ## Installation
