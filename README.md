@@ -11,7 +11,7 @@ and digitally sign PDFs.
 ## Features
 
 - Viewer - View standard and password-protected PDFs
-- Compress - Reduce file size
+- Compress - Reduce file size (Video and Files)
 - Image to PDF - JPG, PNG, WEBP, HEIC, TIFF, GIF, BMP
 - Convert - Export and create PDFs
 - Edit - Add text and annotations
